@@ -16,6 +16,7 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
+import java.nio.ByteBuffer
 import java.util.UUID
 
 
@@ -40,17 +41,19 @@ class MainActivity : Activity() {
         stopAdvertiseButton = findViewById(R.id.stopadv)
 
         mAdvertiseButton.setOnClickListener {
-            if (savedInstanceState == null) {
+            Log.d(TAG, "start advertising")
+//            if (savedInstanceState == null) {
+//                Log.d(TAG, "savedInstanceState is null")
                 mBluetoothAdapter =
                     (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-            }
+//            }
 
             if (mBluetoothAdapter.isEnabled) {
                 if (mBluetoothAdapter.isMultipleAdvertisementSupported) {
                     advertise(this)
                 } else {
 //                    showErrorText(R.string.bt_ads_not_supported)
-                    Log.d(TAG, "not support")
+                    Log.d(TAG, "advertisement not support")
                 }
             } else {
                 val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
@@ -59,13 +62,7 @@ class MainActivity : Activity() {
                         Manifest.permission.BLUETOOTH_CONNECT
                     ) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    // TODO: Consider calling
-                    //    ActivityCompat#requestPermissions
-                    // here to request the missing permissions, and then overriding
-                    //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                    //                                          int[] grantResults)
-                    // to handle the case where the user grants the permission. See the documentation
-                    // for ActivityCompat#requestPermissions for more details.
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 100)
                     return@setOnClickListener
                 }
                 startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
@@ -85,13 +82,6 @@ class MainActivity : Activity() {
                 Manifest.permission.BLUETOOTH_ADVERTISE
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
             return
         }
         advertiser?.stopAdvertising(null)
@@ -104,7 +94,7 @@ class MainActivity : Activity() {
             parameters = AdvertisingSetParameters.Builder()
                 .setLegacyMode(true)
                 .setConnectable(false)
-                .setInterval(AdvertisingSetParameters.INTERVAL_HIGH)
+                .setInterval(160)
                 .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
                 .build()
         } else {
@@ -119,8 +109,8 @@ class MainActivity : Activity() {
         val pUuid = ParcelUuid(UUID.fromString("CDB7950D-73F1-4D4D-8E47-C090502DBD63"))
 
         val data = AdvertiseData.Builder()
-            .addManufacturerData(1, testData1)
-            .setIncludeDeviceName(true)
+            .setIncludeDeviceName(false)
+            .addServiceData(pUuid, longToByteArray(System.currentTimeMillis())) // 현재 시간을 Advertising 데이터로 추가
             .build()
 
         val callback: AdvertisingSetCallback?
@@ -132,6 +122,7 @@ class MainActivity : Activity() {
                     txPower: Int,
                     status: Int
                 ) {
+                    Log.d(TAG, "onAdvertisingSetStarted(): start!!!!")
                     super.onAdvertisingSetStarted(advertisingSet, txPower, status)
                     Log.d(TAG, "onAdvertisingSetStarted(): txPower:$txPower , status: $status")
 
@@ -140,13 +131,7 @@ class MainActivity : Activity() {
                             Manifest.permission.BLUETOOTH_ADVERTISE
                         ) != PackageManager.PERMISSION_GRANTED
                     ) {
-                        // TODO: Consider calling
-                        //    ActivityCompat#requestPermissions
-                        // here to request the missing permissions, and then overriding
-                        //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                        //                                          int[] grantResults)
-                        // to handle the case where the user grants the permission. See the documentation
-                        // for ActivityCompat#requestPermissions for more details.
+                        ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE), 100)
                         return
                     }
                     advertisingSet.setAdvertisingData(
@@ -168,13 +153,6 @@ class MainActivity : Activity() {
                             arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE),
                             100
                         )
-                        // TODO: Consider calling
-                        //    ActivityCompat#requestPermissions
-                        // here to request the missing permissions, and then overriding
-                        //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                        //                                          int[] grantResults)
-                        // to handle the case where the user grants the permission. See the documentation
-                        // for ActivityCompat#requestPermissions for more details.
                         return
                     }
                     advertisingSet.setScanResponseData(
@@ -219,23 +197,17 @@ class MainActivity : Activity() {
                     Manifest.permission.BLUETOOTH_ADVERTISE
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-
                 ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE), 100)
-                return
+                //return
             }
             advertiser?.startAdvertisingSet(parameters, data, null, null, null, callback)
             Toast.makeText(this@MainActivity, "Data$data", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun showErrorText(resId: Int) {
-        // Implement your error handling logic here
+    fun longToByteArray(value: Long): ByteArray {
+        val buffer = ByteBuffer.allocate(java.lang.Long.BYTES)
+        buffer.putLong(value)
+        return buffer.array()
     }
 }
