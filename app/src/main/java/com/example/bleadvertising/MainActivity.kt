@@ -1,6 +1,7 @@
 package com.example.bleadvertising
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
@@ -10,6 +11,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import android.widget.Button
@@ -19,17 +22,63 @@ import androidx.core.app.ActivityCompat
 import java.nio.ByteBuffer
 import java.util.UUID
 
-
 class MainActivity : Activity() {
     private lateinit var mAdvertiseButton: Button
     private lateinit var stopAdvertiseButton: Button
     private lateinit var mBluetoothAdapter: BluetoothAdapter
+    private lateinit var advertisingSetCallback: AdvertisingSetCallback
 
     companion object {
         private const val TAG = "BLEApp"
         private const val REQUEST_ENABLE_BT = 1
-        private const val Device_Name = "Abc"
-        private const val Device_Id = "0x34Abc"
+        private const val REQUEST_BLUETOOTH_PERMISSION = 2
+        private const val REQUEST_BLUETOOTH_CONNECT_PERMISSION = 3
+        private const val STRING_UUID = "CDB7950D-73F1-4D4D-8E47-C090502DBD63"
+    }
+
+    // 권한 요청 프로세스
+    // 1. 블루투스 권한 체크
+    // 2. 블루투스 어댑터 on/off 체크
+    // 3.
+
+    @SuppressLint("MissingPermission")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when(requestCode) {
+            REQUEST_BLUETOOTH_PERMISSION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                    startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+                }
+            }
+            REQUEST_BLUETOOTH_CONNECT_PERMISSION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                    startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+                }
+            }
+            REQUEST_ENABLE_BT -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    mBluetoothAdapter =
+                        (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+
+                    if (mBluetoothAdapter.isEnabled) {
+                        if (mBluetoothAdapter.isMultipleAdvertisementSupported) {
+                            advertise(this)
+                        } else {
+                            Log.d(TAG, "advertisement not support")
+                        }
+                    } else {
+                        val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                        startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+                    }
+                }
+            }
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -42,49 +91,70 @@ class MainActivity : Activity() {
 
         mAdvertiseButton.setOnClickListener {
             Log.d(TAG, "start advertising")
-//            if (savedInstanceState == null) {
-//                Log.d(TAG, "savedInstanceState is null")
-                mBluetoothAdapter =
-                    (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-//            }
 
-            if (mBluetoothAdapter.isEnabled) {
-                if (mBluetoothAdapter.isMultipleAdvertisementSupported) {
-                    advertise(this)
-                } else {
-//                    showErrorText(R.string.bt_ads_not_supported)
-                    Log.d(TAG, "advertisement not support")
-                }
-            } else {
-                val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (ActivityCompat.checkSelfPermission(
                         this,
                         Manifest.permission.BLUETOOTH_CONNECT
                     ) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 100)
-                    return@setOnClickListener
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQUEST_BLUETOOTH_CONNECT_PERMISSION)
+                } else {
+                    mBluetoothAdapter =
+                        (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+
+                    if (mBluetoothAdapter.isEnabled) {
+                        if (mBluetoothAdapter.isMultipleAdvertisementSupported) {
+                            advertise(this)
+                        } else {
+                            Log.d(TAG, "advertisement not support")
+                        }
+                    } else {
+                        val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                        startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+                    }
                 }
-                startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+            } else {
+                if (ActivityCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.BLUETOOTH
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH), REQUEST_BLUETOOTH_PERMISSION)
+                } else {
+                    mBluetoothAdapter =
+                        (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+
+                    if (mBluetoothAdapter.isEnabled) {
+                        if (mBluetoothAdapter.isMultipleAdvertisementSupported) {
+                            advertise(this)
+                        } else {
+                            Log.d(TAG, "advertisement not support")
+                        }
+                    } else {
+                        val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                        startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+                    }
+                }
             }
         }
 
         stopAdvertiseButton.setOnClickListener {
-            stopAdv(this)
+            stopAdv(this, advertisingSetCallback)
         }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun stopAdv(context: Context) {
+    private fun stopAdv(context: Context, callback: AdvertisingSetCallback) {
         val advertiser: BluetoothLeAdvertiser? = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter.bluetoothLeAdvertiser
-        if (ActivityCompat.checkSelfPermission(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.BLUETOOTH_ADVERTISE
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
-        advertiser?.stopAdvertising(null)
+        advertiser?.stopAdvertisingSet(callback)
     }
 
     private fun advertise(context: Context) {
@@ -95,70 +165,50 @@ class MainActivity : Activity() {
                 .setLegacyMode(true)
                 .setConnectable(false)
                 .setInterval(160)
-                .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
+                .setTxPowerLevel(1) // -127 ~ 1 (1이 가장 강한 강도)
                 .build()
         } else {
             return
         }
 
-        val manufacturerData = byteArrayOf(0x41, 0x4D, 0x4F, 0x4C)
-
-        val testData = "abcdefghij"
-        val testData1 = testData.toByteArray()
-
-        val pUuid = ParcelUuid(UUID.fromString("CDB7950D-73F1-4D4D-8E47-C090502DBD63"))
+        val pUuid = ParcelUuid(UUID.fromString(STRING_UUID))
 
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
             .addServiceData(pUuid, longToByteArray(System.currentTimeMillis())) // 현재 시간을 Advertising 데이터로 추가
             .build()
 
-        val callback: AdvertisingSetCallback?
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            callback = object : AdvertisingSetCallback() {
+            advertisingSetCallback = object : AdvertisingSetCallback() {
                 override fun onAdvertisingSetStarted(
                     advertisingSet: AdvertisingSet,
                     txPower: Int,
                     status: Int
                 ) {
-                    Log.d(TAG, "onAdvertisingSetStarted(): start!!!!")
                     super.onAdvertisingSetStarted(advertisingSet, txPower, status)
                     Log.d(TAG, "onAdvertisingSetStarted(): txPower:$txPower , status: $status")
+                    val handler = Handler(Looper.getMainLooper())
+                    handler.postDelayed(object : Runnable {
+                        override fun run() {
+                            if (ActivityCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.BLUETOOTH_ADVERTISE
+                                ) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE), 100)
+                                return
+                            }
 
-                    if (ActivityCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.BLUETOOTH_ADVERTISE
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE), 100)
-                        return
-                    }
-                    advertisingSet.setAdvertisingData(
-                        AdvertiseData.Builder()
-                            .addManufacturerData(67, testData1)
-                            .setIncludeDeviceName(true)
-                            .setIncludeTxPowerLevel(true)
-                            .build()
-                    )
+                            advertisingSet.setAdvertisingData(
+                                AdvertiseData.Builder()
+                                    .addServiceData(pUuid, longToByteArray(System.currentTimeMillis())) // 현재 시간을 Advertising 데이터로 추가
+                                    .build()
+                            )
 
-                    val pUuid = pUuid
-                    if (ActivityCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.BLUETOOTH_ADVERTISE
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        ActivityCompat.requestPermissions(
-                            this@MainActivity,
-                            arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE),
-                            100
-                        )
-                        return
-                    }
-                    advertisingSet.setScanResponseData(
-                        AdvertiseData.Builder().addServiceUuid(pUuid).build()
-                    )
-                    Log.d(TAG, "UUID$pUuid")
+                            // 1초 후에 다시 실행합니다.
+                            handler.postDelayed(this, 100)
+                        }
+                    }, 100)
                 }
 
                 override fun onAdvertisingSetStopped(advertisingSet: AdvertisingSet) {
@@ -200,12 +250,13 @@ class MainActivity : Activity() {
                 ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE), 100)
                 //return
             }
-            advertiser?.startAdvertisingSet(parameters, data, null, null, null, callback)
+            advertiser?.startAdvertisingSet(parameters, data, null, null, null, advertisingSetCallback)
             Toast.makeText(this@MainActivity, "Data$data", Toast.LENGTH_LONG).show()
         }
     }
 
-    fun longToByteArray(value: Long): ByteArray {
+
+    private fun longToByteArray(value: Long): ByteArray {
         val buffer = ByteBuffer.allocate(java.lang.Long.BYTES)
         buffer.putLong(value)
         return buffer.array()
