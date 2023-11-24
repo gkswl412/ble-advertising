@@ -173,7 +173,7 @@ class MainActivity : Activity() {
 
         val pUuid = ParcelUuid(UUID.fromString(STRING_UUID))
 
-        val data = AdvertiseData.Builder()
+        var data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
             .addServiceData(pUuid, longToByteArray(System.currentTimeMillis())) // 현재 시간을 Advertising 데이터로 추가
             .build()
@@ -187,33 +187,37 @@ class MainActivity : Activity() {
                 ) {
                     super.onAdvertisingSetStarted(advertisingSet, txPower, status)
                     Log.d(TAG, "onAdvertisingSetStarted(): txPower:$txPower , status: $status")
-                    val handler = Handler(Looper.getMainLooper())
-                    handler.postDelayed(object : Runnable {
-                        override fun run() {
-                            if (ActivityCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.BLUETOOTH_ADVERTISE
-                                ) != PackageManager.PERMISSION_GRANTED
-                            ) {
-                                ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE), 100)
-                                return
-                            }
 
-                            advertisingSet.setAdvertisingData(
-                                AdvertiseData.Builder()
-                                    .addServiceData(pUuid, longToByteArray(System.currentTimeMillis())) // 현재 시간을 Advertising 데이터로 추가
-                                    .build()
-                            )
+                    if (ActivityCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.BLUETOOTH_ADVERTISE
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        return
+                    }
 
-                            // 1초 후에 다시 실행합니다.
-                            handler.postDelayed(this, 100)
-                        }
-                    }, 100)
+                    stopAdv(context, advertisingSetCallback)
                 }
 
                 override fun onAdvertisingSetStopped(advertisingSet: AdvertisingSet) {
                     super.onAdvertisingSetStopped(advertisingSet)
                     Log.d(TAG, "onAdvertisingSetStopped():")
+                    if (ActivityCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.BLUETOOTH_ADVERTISE
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        return
+                    }
+
+                    val curTime = System.currentTimeMillis()
+
+                    data = AdvertiseData.Builder()
+                        .setIncludeDeviceName(false)
+                        .addServiceData(pUuid, longToByteArray(curTime)) // 현재 시간을 Advertising 데이터로 추가
+                        .build()
+
+                    advertiser?.startAdvertisingSet(parameters, data, null, null, null, advertisingSetCallback)
                 }
 
                 override fun onAdvertisingEnabled(
@@ -222,6 +226,7 @@ class MainActivity : Activity() {
                     status: Int
                 ) {
                     super.onAdvertisingEnabled(advertisingSet, enable, status)
+                    Log.d(TAG, "onAdvertisingEnabled():")
                 }
 
                 override fun onAdvertisingDataSet(advertisingSet: AdvertisingSet, status: Int) {
@@ -257,7 +262,7 @@ class MainActivity : Activity() {
 
 
     private fun longToByteArray(value: Long): ByteArray {
-        val buffer = ByteBuffer.allocate(java.lang.Long.BYTES)
+        val buffer = ByteBuffer.allocate(java.lang.Long.SIZE / java.lang.Byte.SIZE)
         buffer.putLong(value)
         return buffer.array()
     }
